@@ -1,0 +1,477 @@
+/* Modal Styles */
+.vta-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.vta-modal-content {
+  background: white;
+  border-radius: 8px;
+  padding: 0;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.vta-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.vta-modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.vta-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.vta-modal-close:hover {
+  background: #f3f4f6;
+}
+
+.vta-modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.vta-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* Filter Form Styles */
+.vta-filter-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.vta-select,
+.vta-input {
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.vta-select {
+  flex: 1;
+  min-width: 150px;
+}
+
+.vta-input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.vta-btn-primary {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.vta-btn-primary:hover {
+  background: #2563eb;
+}
+
+.vta-btn-primary:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.vta-btn-secondary {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.vta-btn-secondary:hover {
+  background: #e5e7eb;
+}
+
+.vta-active-filters {
+  margin-top: 1rem;
+}
+
+.vta-active-filters h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #374151;
+}
+
+.vta-filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  margin: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.vta-filter-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #ef4444;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0;
+  margin-left: 0.25rem;
+}
+
+.vta-filter-remove:hover {
+  color: #dc2626;
+}
+
+/* Filter Button */
+.vta-filter-button {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  margin-right: 0.5rem;
+}
+
+.vta-filter-button:hover {
+  background: #e5e7eb;
+}
+
+/* Dashboard Manager Styles */
+.vta-dashboard-manager {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-left: auto;
+}
+
+.vta-dashboard-header {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.vta-dashboard-list {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  min-width: 200px;
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.vta-dashboard-list h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+  padding: 0.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.vta-dashboard-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.vta-dashboard-item:hover {
+  background: #f3f4f6;
+}
+
+.vta-dashboard-item.active {
+  background: #eff6ff;
+  color: #3b82f6;
+}
+
+.vta-dashboard-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.vta-dashboard-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.vta-dashboard-edit input {
+  width: 100%;
+  padding: 0.25rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+/* React Grid Layout Overrides - Fixed */
+.react-grid-layout {
+  position: relative;
+  transition: height 200ms ease;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top, width, height;
+  background-color: transparent;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.react-grid-item > * {
+  height: 100%;
+  width: 100%;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: rgba(59, 130, 246, 0.2);
+  opacity: 0.2;
+  transition-duration: 100ms;
+  z-index: 2;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -o-user-select: none;
+  user-select: none;
+  border-radius: 10px;
+  margin: 0;
+  border: 2px dashed rgba(59, 130, 246, 0.5);
+}
+
+.react-grid-item.react-draggable-dragging {
+  z-index: 1000 !important;
+  opacity: 0.9;
+}
+
+.react-grid-item > .react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path d="M 0 20 L 20 0 Z" stroke="rgba(0,0,0,0.3)" stroke-width="2" fill="none"/></svg>');
+  cursor: se-resize;
+  z-index: 1000;
+  opacity: 0.7;
+}
+
+.react-grid-item:hover > .react-resizable-handle {
+  opacity: 1;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 2px solid rgba(0,0,0,0.4);
+  border-bottom: 2px solid rgba(0,0,0,0.4);
+}
+
+/* Grid Layout Styles - Optimized */
+.vta-dashboard-grid {
+  margin-top: 1rem;
+  padding: 10px;
+  position: relative;
+  min-height: 400px;
+}
+
+.vta-grid-item {
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  transition: box-shadow 0.2s ease;
+  position: relative;
+}
+
+.vta-grid-item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.vta-grid-item .vta-chart-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.vta-chart-container {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+}
+
+.vta-chart-header-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 0 10px 0 8px;
+  backdrop-filter: blur(4px);
+}
+
+.vta-filter-button,
+.vta-remove-button {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.vta-filter-button:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.vta-filter-button:active {
+  transform: scale(0.95);
+}
+
+.vta-remove-button {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.vta-remove-button:hover {
+  background: #fecaca;
+  border-color: #f87171;
+}
+
+.vta-drag-handle {
+  user-select: none;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.03);
+  cursor: move;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #6b7280;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.vta-empty-dashboard {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: #6b7280;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .vta-dashboard-grid {
+    padding: 8px;
+  }
+  
+  .vta-chart-container {
+    padding: 6px 8px;
+  }
+  
+  .vta-filter-form {
+    flex-direction: column;
+  }
+  
+  .vta-select,
+  .vta-input {
+    width: 100%;
+  }
+  
+  .vta-dashboard-manager {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .vta-chart-header-actions {
+    padding: 0.2rem;
+    gap: 0.2rem;
+  }
+  
+  .vta-filter-button,
+  .vta-remove-button {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.7rem;
+  }
+}
+
