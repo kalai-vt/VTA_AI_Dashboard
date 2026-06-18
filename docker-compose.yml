@@ -1,21 +1,38 @@
 version: '3.9'
-
 services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://agentuser:agentpass@postgres/agentdb
+      - REDIS_URL=redis://redis:6379
+      - QDRANT_HOST=qdrant
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+    volumes:
+      - ./uploads:/app/uploads
+    env_file: .env
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: agentdb
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: agentuser
+      POSTGRES_PASSWORD: agentpass
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -28,32 +45,6 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-
-  api:
-    build: .
-    ports:
-      - "8000:8000"
-    env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      qdrant:
-        condition: service_started
-      redis:
-        condition: service_started
-    volumes:
-      - ./uploads:/app/uploads
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres/agentdb
-      - QDRANT_HOST=qdrant
-      - REDIS_URL=redis://redis:6379
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      - api
 
 volumes:
   postgres_data:

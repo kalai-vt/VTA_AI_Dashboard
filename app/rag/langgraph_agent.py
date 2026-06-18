@@ -1,107 +1,145 @@
 import operator
-from typing import TypedDict, List, Optional, Annotated
-from langgraph.graph import StateGraph, END
-from app.rag.intent_classifier import classify_intent
-from app.rag import agents
+from typing import TypedDict, List, Optional, Annotated, Any
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.config.settings import settings
 
 
 class AgentState(TypedDict):
     messages: Annotated[List[dict], operator.add]
     intent: str
     confidence: float
-    lead_score: int
+    lead_score: float
     capture_lead: bool
     company_id: str
-    company_name: str
     session_id: str
+    company_context: dict
     response: str
-    lead_data: Optional[dict]
 
 
-async def classify_node(state: AgentState) -> AgentState:
-    last_msg = state["messages"][-1]["content"] if state["messages"] else ""
-    history = state["messages"][:-1]
-    result = await classify_intent(last_msg, history)
-    return {**state, **result}
+async def _get_company_context(company_id: str, db: AsyncSession) -> dict:
+    from app.database.models import Company, AgentSettings
+    try:
+        result = await db.execute(select(Company).where(Company.id == company_id))
+        company = result.scalar_one_or_none()
+        if not company:
+            return {}
+
+        settings_result = await db.execute(
+            select(AgentSettings).where(AgentSettings.company_id == company_id)
+        )
+        agent_settings = settings_result.scalar_one_or_none()
+
+        context = {
+            "id": str(company.id),
+            "name": company.name,
+            "website_url": company.website_url,
+            "description": company.description,
+            "support_email": company.support_email,
+            "sales_email": company.sales_email,
+        }
+
+        if agent_settings:
+            context.update({
+                "agent_name": agent_settings.agent_name,
+                "welcome_message": agent_settings.welcome_message,
+                "system_prompt": agent_settings.system_prompt,
+                "temperature": agent_settings.temperature,
+                "max_tokens": agent_settings.max_tokens,
+                "llm_model": agent_settings.llm_model,
+            })
+
+        return context
+    except Exception:
+        return {}
 
 
-def route_node(state: AgentState) -> str:
-    intent_map = {
-        "GREETING": "greeting",
-        "COMPANY_RELATED": "rag",
-        "PRODUCT_INFORMATION": "rag",
-        "EXPORT_INQUIRY": "lead",
-        "RFQ_REQUEST": "lead",
-        "SALES_INQUIRY": "lead",
-        "SUPPORT_REQUEST": "support",
-        "CONTACT_REQUEST": "support",
-        "NON_COMPANY_RELATED": "redirect",
-    }
-    return intent_map.get(state.get("intent", ""), "rag")
+async def run(
+    message: str,
+    session_token: str,
+    company_id: str,
+    db: AsyncSession,
+    conversation_history: list = []
+) -> dict:
+    try:
+        from langgraph.graph import StateGraph, END
+        from app.rag.intent_classifier import IntentClassifier
+        from app.rag.agents.greeting_agent import GreetingAgent
+        from app.rag.agents.rag_agent import RAGAgent
+        from app.rag.agents.lead_agent import LeadAgent
+        from app.rag.agents.support_agent import SupportAgent
+        from app.rag.agents.redirect_agent import RedirectAgent
 
+        company_context = await _get_company_context(company_id, db)
+        classifier = IntentClassifier()
+        intent_result = await classifier.classify(message, conversation_history, str(company_context.get("name", "")))
 
-async def greeting_node(state: AgentState) -> AgentState:
-    msg = state["messages"][-1]["content"]
-    response = await agents.greeting_agent.run(msg, state.get("company_name", "our company"))
-    return {**state, "response": response}
+        # Find session_id
+        session_id = ""
+        try:
+            from app.database.models import ChatSession
+            result = await db.execute(
+                select(ChatSession).where(ChatSession.session_token == session_token)
+            )
+            session = result.scalar_one_or_none()
+            if session:
+                session_id = str(session.id)
+        except Exception:
+            pass
 
+        response_text = ""
+        lead_captured = False
 
-async def rag_node(state: AgentState) -> AgentState:
-    msg = state["messages"][-1]["content"]
-    history = state["messages"][:-1]
-    response = await agents.rag_agent.run(msg, state["company_id"], history)
-    return {**state, "response": response}
+        intent = intent_result.intent
 
+        if intent == "greeting" or intent == "farewell":
+            agent = GreetingAgent()
+            response_text = await agent.respond(message, company_context, conversation_history)
 
-async def lead_node(state: AgentState) -> AgentState:
-    msg = state["messages"][-1]["content"]
-    history = state["messages"][:-1]
-    result = await agents.lead_agent.run(msg, state["company_id"], history)
-    return {**state, "response": result["response"], "lead_data": result.get("lead_data"), "capture_lead": True}
+        elif intent in ("product_inquiry", "pricing", "other"):
+            agent = RAGAgent(db)
+            response_text = await agent.respond(message, company_id, company_context, conversation_history)
 
+        elif intent == "support" or intent == "complaint":
+            agent = SupportAgent(db)
+            response_text = await agent.respond(message, company_id, company_context, conversation_history)
 
-async def support_node(state: AgentState) -> AgentState:
-    msg = state["messages"][-1]["content"]
-    history = state["messages"][:-1]
-    response = await agents.support_agent.run(msg, state["company_id"], history)
-    return {**state, "response": response}
+        elif intent == "lead_qualification" or intent_result.capture_lead:
+            agent = LeadAgent(db)
+            result = await agent.respond(message, company_id, session_id, company_context, conversation_history)
+            response_text = result.get("response", "")
+            lead_captured = result.get("lead_captured", False)
 
+        elif intent == "off_topic":
+            agent = RedirectAgent()
+            response_text = await agent.respond(message, company_context, conversation_history)
 
-async def redirect_node(state: AgentState) -> AgentState:
-    response = await agents.redirect_agent.run(state["messages"][-1]["content"])
-    return {**state, "response": response}
+        else:
+            agent = RAGAgent(db)
+            response_text = await agent.respond(message, company_id, company_context, conversation_history)
 
+        # Track analytics
+        try:
+            from app.services.analytics_service import AnalyticsService
+            analytics = AnalyticsService(db)
+            await analytics.record_event(company_id, "message")
+        except Exception:
+            pass
 
-workflow = StateGraph(AgentState)
-workflow.add_node("classify", classify_node)
-workflow.add_node("greeting", greeting_node)
-workflow.add_node("rag", rag_node)
-workflow.add_node("lead", lead_node)
-workflow.add_node("support", support_node)
-workflow.add_node("redirect", redirect_node)
-workflow.set_entry_point("classify")
-workflow.add_conditional_edges("classify", route_node, {
-    "greeting": "greeting", "rag": "rag", "lead": "lead",
-    "support": "support", "redirect": "redirect",
-})
-for node in ["greeting", "rag", "lead", "support", "redirect"]:
-    workflow.add_edge(node, END)
-app_graph = workflow.compile()
+        return {
+            "response": response_text,
+            "intent": intent,
+            "confidence": intent_result.confidence,
+            "lead_score": intent_result.lead_score,
+            "capture_lead": intent_result.capture_lead or lead_captured,
+        }
 
-
-async def run_agent(message: str, session_token: str, company_id: str, company_name: str,
-                    conversation_history: list, db=None) -> dict:
-    state = AgentState(
-        messages=[*conversation_history, {"role": "user", "content": message}],
-        intent="", confidence=0.0, lead_score=0, capture_lead=False,
-        company_id=company_id, company_name=company_name,
-        session_id=session_token, response="", lead_data=None,
-    )
-    result = await app_graph.ainvoke(state)
-    return {
-        "response": result["response"],
-        "intent": result["intent"],
-        "lead_score": result["lead_score"],
-        "capture_lead": result["capture_lead"],
-        "lead_data": result.get("lead_data"),
-    }
+    except Exception as e:
+        return {
+            "response": "I apologize, I'm having trouble processing your request. Please try again or contact us directly.",
+            "intent": "error",
+            "confidence": 0.0,
+            "lead_score": 0.0,
+            "capture_lead": False,
+        }
