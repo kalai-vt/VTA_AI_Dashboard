@@ -1,48 +1,80 @@
-from openai import AsyncOpenAI
-from app.config.settings import settings
 import json
-
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-
-INTENTS = [
-    "GREETING", "COMPANY_RELATED", "SALES_INQUIRY", "SUPPORT_REQUEST",
-    "PRODUCT_INFORMATION", "EXPORT_INQUIRY", "RFQ_REQUEST",
-    "CONTACT_REQUEST", "NON_COMPANY_RELATED"
-]
+from typing import Literal
+from pydantic import BaseModel
+from app.config.settings import settings
 
 
-async def classify_intent(message: str, history: list = []) -> dict:
-    history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history[-4:]])
-    prompt = f"""Classify the user message intent.
-Conversation history:
-{history_text}
+class IntentResult(BaseModel):
+    intent: Literal["greeting", "product_inquiry", "pricing", "support", "lead_qualification", "complaint", "off_topic", "farewell", "other"]
+    confidence: float
+    lead_score: float
+    capture_lead: bool
+    reasoning: str
 
-User message: {message}
 
-Return JSON with:
-- intent: one of {INTENTS}
+class IntentClassifier:
+    def __init__(self):
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            from openai import AsyncOpenAI
+            self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        return self._client
+
+    async def classify(self, message: str, conversation_history: list, company_context: str = "") -> IntentResult:
+        system_prompt = f"""You are an intent classifier for a sales and support chatbot.
+Company context: {company_context}
+
+Classify the user message into one of these intents:
+- greeting: Hello, hi, hey, good morning etc.
+- product_inquiry: Questions about products, services, features
+- pricing: Questions about prices, costs, plans, packages
+- support: Technical issues, problems, bugs, help requests
+- lead_qualification: User showing buying intent, asking about purchase process, demos
+- complaint: Negative feedback, dissatisfaction
+- off_topic: Unrelated to the company/products
+- farewell: Goodbye, bye, thank you and leaving
+- other: Doesn't fit other categories
+
+Also estimate:
 - confidence: 0.0-1.0
-- lead_score: 0-100 (how likely this person is a buyer)
-- capture_lead: true/false (should we collect contact info)
+- lead_score: 0.0-1.0 (likelihood this person is a potential lead)
+- capture_lead: true if we should try to collect their contact info
+- reasoning: brief explanation
 
-Only return valid JSON."""
+Respond with JSON only."""
 
-    response = await client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": "You are an intent classifier. Return only JSON."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0,
-        response_format={"type": "json_object"}
-    )
-    try:
-        result = json.loads(response.choices[0].message.content)
-        return {
-            "intent": result.get("intent", "COMPANY_RELATED"),
-            "confidence": float(result.get("confidence", 0.8)),
-            "lead_score": int(result.get("lead_score", 0)),
-            "capture_lead": bool(result.get("capture_lead", False))
-        }
-    except Exception:
-        return {"intent": "COMPANY_RELATED", "confidence": 0.5, "lead_score": 0, "capture_lead": False}
+        history_text = ""
+        if conversation_history:
+            history_text = "\n".join([f"{m['role']}: {m['content']}" for m in conversation_history[-5:]])
+
+        user_prompt = f"Conversation history:\n{history_text}\n\nCurrent message: {message}"
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.1,
+            )
+            data = json.loads(response.choices[0].message.content)
+            return IntentResult(
+                intent=data.get("intent", "other"),
+                confidence=float(data.get("confidence", 0.5)),
+                lead_score=float(data.get("lead_score", 0.0)),
+                capture_lead=bool(data.get("capture_lead", False)),
+                reasoning=data.get("reasoning", ""),
+            )
+        except Exception:
+            return IntentResult(
+                intent="other",
+                confidence=0.5,
+                lead_score=0.0,
+                capture_lead=False,
+                reasoning="Classification failed",
+            )
