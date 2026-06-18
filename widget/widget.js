@@ -1,134 +1,151 @@
 (function () {
+  'use strict';
+
   var config = window.AgentConfig || {};
   var widgetKey = config.widgetKey || '';
-  var primaryColor = config.primaryColor || '#2563eb';
+  var primaryColor = config.primaryColor || '#3b82f6';
   var apiUrl = config.apiUrl || 'http://localhost:8000';
-  var sessionKey = 'agent_session_' + widgetKey;
-  var sessionToken = localStorage.getItem(sessionKey) || null;
-  var isOpen = false;
+  var agentName = config.agentName || 'AI Assistant';
+  var sessionStorageKey = 'agent_session_' + widgetKey;
+
+  var sessionToken = localStorage.getItem(sessionStorageKey);
 
   // Inject styles
   var style = document.createElement('style');
   style.textContent = [
-    '.ag-btn{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:' + primaryColor + ';border:none;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;z-index:9999;transition:transform .2s;}',
-    '.ag-btn:hover{transform:scale(1.08);}',
-    '.ag-btn svg{width:28px;height:28px;fill:#fff;}',
-    '.ag-panel{position:fixed;bottom:92px;right:24px;width:350px;height:500px;background:#fff;border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,0.15);display:none;flex-direction:column;z-index:9998;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}',
-    '.ag-panel.open{display:flex;}',
-    '.ag-header{background:' + primaryColor + ';color:#fff;padding:16px;display:flex;align-items:center;justify-content:space-between;}',
-    '.ag-header-title{font-size:15px;font-weight:600;}',
-    '.ag-header-sub{font-size:11px;opacity:.85;margin-top:2px;}',
-    '.ag-close{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;line-height:1;padding:0;}',
-    '.ag-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}',
-    '.ag-msg{max-width:80%;padding:10px 13px;border-radius:12px;font-size:13px;line-height:1.5;word-wrap:break-word;}',
-    '.ag-msg.user{align-self:flex-end;background:' + primaryColor + ';color:#fff;border-bottom-right-radius:4px;}',
-    '.ag-msg.bot{align-self:flex-start;background:#f1f5f9;color:#1e293b;border-bottom-left-radius:4px;}',
-    '.ag-typing{align-self:flex-start;background:#f1f5f9;padding:10px 14px;border-radius:12px;border-bottom-left-radius:4px;display:flex;gap:4px;align-items:center;}',
-    '.ag-dot{width:7px;height:7px;background:#94a3b8;border-radius:50%;animation:ag-bounce .8s infinite;}',
-    '.ag-dot:nth-child(2){animation-delay:.15s;}',
-    '.ag-dot:nth-child(3){animation-delay:.3s;}',
-    '@keyframes ag-bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}',
-    '.ag-footer{padding:10px 12px;border-top:1px solid #e2e8f0;display:flex;gap:8px;}',
-    '.ag-input{flex:1;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;outline:none;font-family:inherit;}',
-    '.ag-input:focus{border-color:' + primaryColor + ';}',
-    '.ag-send{background:' + primaryColor + ';color:#fff;border:none;border-radius:8px;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}',
-    '.ag-send:disabled{opacity:.5;cursor:default;}',
-    '@media(max-width:480px){.ag-panel{width:100vw;height:100vh;bottom:0;right:0;border-radius:0;}.ag-btn{bottom:16px;right:16px;}}'
-  ].join('');
+    '#ai-widget-btn { position: fixed; bottom: 24px; right: 24px; width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(0,0,0,0.18); z-index: 99998; transition: transform 0.2s, opacity 0.2s; }',
+    '#ai-widget-btn:hover { transform: scale(1.08); }',
+    '#ai-widget-panel { position: fixed; bottom: 92px; right: 24px; width: 350px; height: 500px; background: #fff; border-radius: 16px; box-shadow: 0 8px 40px rgba(0,0,0,0.18); z-index: 99999; display: flex; flex-direction: column; overflow: hidden; transition: opacity 0.2s, transform 0.2s; }',
+    '#ai-widget-panel.hidden { opacity: 0; pointer-events: none; transform: translateY(16px); }',
+    '#ai-widget-header { padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; }',
+    '#ai-widget-header-title { color: #fff; font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px; font-family: sans-serif; }',
+    '#ai-widget-close { background: none; border: none; color: rgba(255,255,255,0.8); cursor: pointer; font-size: 20px; line-height: 1; padding: 0; display: flex; align-items: center; }',
+    '#ai-widget-close:hover { color: #fff; }',
+    '#ai-widget-messages { flex: 1; overflow-y: auto; padding: 12px; background: #f8f9fb; display: flex; flex-direction: column; gap: 8px; }',
+    '.ai-msg { max-width: 80%; border-radius: 12px; padding: 8px 12px; font-size: 14px; line-height: 1.5; font-family: sans-serif; word-break: break-word; }',
+    '.ai-msg.user { align-self: flex-end; color: #fff; border-bottom-right-radius: 4px; }',
+    '.ai-msg.bot { align-self: flex-start; background: #fff; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border-bottom-left-radius: 4px; }',
+    '.ai-typing { align-self: flex-start; background: #fff; border-radius: 12px; border-bottom-left-radius: 4px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; gap: 4px; align-items: center; }',
+    '.ai-typing span { width: 6px; height: 6px; border-radius: 50%; background: #aaa; display: inline-block; animation: bounce 1.2s infinite; }',
+    '.ai-typing span:nth-child(2) { animation-delay: 0.2s; }',
+    '.ai-typing span:nth-child(3) { animation-delay: 0.4s; }',
+    '@keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }',
+    '#ai-widget-input-row { display: flex; gap: 8px; padding: 10px 12px; background: #fff; border-top: 1px solid #f0f0f0; }',
+    '#ai-widget-input { flex: 1; border: 1.5px solid #e5e7eb; border-radius: 8px; padding: 8px 12px; font-size: 14px; outline: none; font-family: sans-serif; }',
+    '#ai-widget-input:focus { border-color: ' + primaryColor + '; }',
+    '#ai-widget-send { border: none; border-radius: 8px; cursor: pointer; padding: 8px 14px; color: #fff; font-size: 14px; font-weight: 600; font-family: sans-serif; transition: opacity 0.15s; }',
+    '#ai-widget-send:hover { opacity: 0.88; }',
+    '@media (max-width: 480px) { #ai-widget-panel { width: 100vw; height: 100vh; bottom: 0; right: 0; border-radius: 0; } #ai-widget-btn { bottom: 16px; right: 16px; } }',
+  ].join('\n');
   document.head.appendChild(style);
 
-  // Chat button
+  // Create button
   var btn = document.createElement('button');
-  btn.className = 'ag-btn';
-  btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>';
+  btn.id = 'ai-widget-btn';
+  btn.style.background = primaryColor;
+  btn.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
   document.body.appendChild(btn);
 
-  // Chat panel
+  // Create panel
   var panel = document.createElement('div');
-  panel.className = 'ag-panel';
+  panel.id = 'ai-widget-panel';
+  panel.classList.add('hidden');
   panel.innerHTML = [
-    '<div class="ag-header">',
-    '  <div><div class="ag-header-title">AI Assistant</div><div class="ag-header-sub">Online &bull; Replies instantly</div></div>',
-    '  <button class="ag-close" id="ag-close-btn">&times;</button>',
+    '<div id="ai-widget-header" style="background:' + primaryColor + '">',
+    '  <div id="ai-widget-header-title">',
+    '    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>',
+    '    ' + agentName,
+    '  </div>',
+    '  <button id="ai-widget-close">&#x2715;</button>',
     '</div>',
-    '<div class="ag-messages" id="ag-messages"></div>',
-    '<div class="ag-footer">',
-    '  <input class="ag-input" id="ag-input" type="text" placeholder="Type your message..." />',
-    '  <button class="ag-send" id="ag-send-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>',
-    '</div>'
+    '<div id="ai-widget-messages"></div>',
+    '<div id="ai-widget-input-row">',
+    '  <input id="ai-widget-input" type="text" placeholder="Type a message..." />',
+    '  <button id="ai-widget-send" style="background:' + primaryColor + '">Send</button>',
+    '</div>',
   ].join('');
   document.body.appendChild(panel);
 
-  var messagesEl = document.getElementById('ag-messages');
-  var inputEl = document.getElementById('ag-input');
-  var sendBtn = document.getElementById('ag-send-btn');
+  var messagesEl = document.getElementById('ai-widget-messages');
+  var inputEl = document.getElementById('ai-widget-input');
+  var sendBtn = document.getElementById('ai-widget-send');
+  var closeBtn = document.getElementById('ai-widget-close');
 
   function addMessage(role, text) {
     var div = document.createElement('div');
-    div.className = 'ag-msg ' + (role === 'user' ? 'user' : 'bot');
+    div.className = 'ai-msg ' + (role === 'user' ? 'user' : 'bot');
+    if (role === 'user') div.style.background = primaryColor;
     div.textContent = text;
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
   }
 
-  function showTyping() {
+  function addTyping() {
     var div = document.createElement('div');
-    div.className = 'ag-typing';
-    div.id = 'ag-typing';
-    div.innerHTML = '<div class="ag-dot"></div><div class="ag-dot"></div><div class="ag-dot"></div>';
+    div.className = 'ai-typing';
+    div.id = 'ai-typing-indicator';
+    div.innerHTML = '<span></span><span></span><span></span>';
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
   }
 
-  function hideTyping() {
-    var el = document.getElementById('ag-typing');
+  function removeTyping() {
+    var el = document.getElementById('ai-typing-indicator');
     if (el) el.remove();
   }
 
-  async function sendMessage() {
+  function generateSessionToken() {
+    return 'sess_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+  }
+
+  function sendMessage() {
     var text = inputEl.value.trim();
     if (!text) return;
     inputEl.value = '';
-    sendBtn.disabled = true;
-    addMessage('user', text);
-    showTyping();
-    try {
-      var res = await fetch(apiUrl + '/chat/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, session_token: sessionToken, widget_key: widgetKey })
-      });
-      var data = await res.json();
-      hideTyping();
-      if (data.session_token) {
-        sessionToken = data.session_token;
-        localStorage.setItem(sessionKey, sessionToken);
-      }
-      addMessage('bot', data.response || 'Sorry, I could not process that.');
-    } catch (e) {
-      hideTyping();
-      addMessage('bot', 'Sorry, I am having trouble connecting. Please try again.');
+
+    if (!sessionToken) {
+      sessionToken = generateSessionToken();
+      localStorage.setItem(sessionStorageKey, sessionToken);
     }
-    sendBtn.disabled = false;
-    inputEl.focus();
+
+    addMessage('user', text);
+    var typing = addTyping();
+
+    fetch(apiUrl + '/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, session_token: sessionToken, widget_key: widgetKey }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        removeTyping();
+        addMessage('bot', data.response || data.message || 'Sorry, I could not process that.');
+      })
+      .catch(function () {
+        removeTyping();
+        addMessage('bot', 'Sorry, I am unable to connect right now. Please try again later.');
+      });
   }
 
   btn.addEventListener('click', function () {
-    isOpen = !isOpen;
-    panel.classList.toggle('open', isOpen);
-    if (isOpen && messagesEl.children.length === 0) {
-      addMessage('bot', 'Hello! How can I help you today?');
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden') && messagesEl.children.length === 0) {
+      addMessage('bot', config.welcomeMessage || 'Hello! How can I help you today?');
     }
-    if (isOpen) inputEl.focus();
+    if (!panel.classList.contains('hidden')) {
+      inputEl.focus();
+    }
   });
 
-  document.getElementById('ag-close-btn').addEventListener('click', function () {
-    isOpen = false;
-    panel.classList.remove('open');
+  closeBtn.addEventListener('click', function () {
+    panel.classList.add('hidden');
   });
 
   sendBtn.addEventListener('click', sendMessage);
+
   inputEl.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    if (e.key === 'Enter') sendMessage();
   });
 })();

@@ -1,127 +1,110 @@
 from datetime import datetime, timedelta, date
-from fastapi import APIRouter, Depends
+from typing import Optional
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from app.database.connection import get_db
-from app.database.models import User, ChatSession, ChatMessage, Lead, Analytics
-from app.utils.security import get_current_user
+from sqlalchemy import select, func, and_, desc
 
-router = APIRouter(prefix="/analytics", tags=["analytics"])
+from app.database.connection import get_db
+from app.database.models import User, Analytics, ChatSession, ChatMessage, Lead, MessageRole
+from app.utils.security import get_current_active_user
+
+router = APIRouter()
 
 
 @router.get("/dashboard")
-async def dashboard(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+async def get_dashboard(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    cid = current_user.company_id
-    today = datetime.utcnow().date()
+    company_id = current_user.company_id
+    today = date.today()
 
-    sessions_result = await db.execute(
-        select(func.count(ChatSession.id)).where(ChatSession.company_id == cid)
+    # Total analytics
+    totals = await db.execute(
+        select(
+            func.sum(Analytics.visitors),
+            func.sum(Analytics.chat_sessions),
+            func.sum(Analytics.messages),
+            func.sum(Analytics.leads_generated),
+        ).where(Analytics.company_id == company_id)
     )
-    total_sessions = sessions_result.scalar() or 0
-
-    messages_result = await db.execute(
-        select(func.count(ChatMessage.id))
-        .join(ChatSession, ChatMessage.session_id == ChatSession.id)
-        .where(ChatSession.company_id == cid)
-    )
-    total_messages = messages_result.scalar() or 0
-
-    leads_result = await db.execute(
-        select(func.count(Lead.id)).where(Lead.company_id == cid)
-    )
-    total_leads = leads_result.scalar() or 0
-
+    row = totals.first()
+    total_visitors = int(row[0] or 0)
+    total_sessions = int(row[1] or 0)
+    total_messages = int(row[2] or 0)
+    total_leads = int(row[3] or 0)
     conversion_rate = (total_leads / total_sessions * 100) if total_sessions > 0 else 0.0
 
-    today_start = datetime.combine(today, datetime.min.time())
-    active_today_result = await db.execute(
-        select(func.count(ChatSession.id)).where(
-            ChatSession.company_id == cid,
-            ChatSession.last_activity >= today_start,
+    # Today's data
+    today_result = await db.execute(
+        select(Analytics).where(
+            Analytics.company_id == company_id,
+            Analytics.date == today
         )
     )
-    active_today = active_today_result.scalar() or 0
+    today_data = today_result.scalar_one_or_none()
+    sessions_today = today_data.chat_sessions if today_data else 0
+    leads_today = today_data.leads_generated if today_data else 0
 
     return {
+        "total_visitors": total_visitors,
         "total_sessions": total_sessions,
         "total_messages": total_messages,
         "total_leads": total_leads,
         "conversion_rate": round(conversion_rate, 2),
-        "active_today": active_today,
+        "sessions_today": sessions_today,
+        "leads_today": leads_today,
     }
 
 
 @router.get("/daily")
-async def daily_analytics(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+async def get_daily_analytics(
+    days: int = Query(default=30, ge=1, le=365),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    cid = current_user.company_id
-    today = datetime.utcnow().date()
-    results = []
+    company_id = current_user.company_id
+    start_date = date.today() - timedelta(days=days)
 
-    for i in range(29, -1, -1):
-        day = today - timedelta(days=i)
-        day_start = datetime.combine(day, datetime.min.time())
-        day_end = datetime.combine(day, datetime.max.time())
-
-        sess_r = await db.execute(
-            select(func.count(ChatSession.id)).where(
-                ChatSession.company_id == cid,
-                ChatSession.started_at >= day_start,
-                ChatSession.started_at <= day_end,
-            )
+    result = await db.execute(
+        select(Analytics)
+        .where(
+            Analytics.company_id == company_id,
+            Analytics.date >= start_date
         )
-        sessions_count = sess_r.scalar() or 0
-
-        msg_r = await db.execute(
-            select(func.count(ChatMessage.id))
-            .join(ChatSession, ChatMessage.session_id == ChatSession.id)
-            .where(
-                ChatSession.company_id == cid,
-                ChatMessage.created_at >= day_start,
-                ChatMessage.created_at <= day_end,
-            )
-        )
-        messages_count = msg_r.scalar() or 0
-
-        lead_r = await db.execute(
-            select(func.count(Lead.id)).where(
-                Lead.company_id == cid,
-                Lead.created_at >= day_start,
-                Lead.created_at <= day_end,
-            )
-        )
-        leads_count = lead_r.scalar() or 0
-
-        results.append({
-            "date": day.isoformat(),
-            "sessions": sessions_count,
-            "messages": messages_count,
-            "leads": leads_count,
-        })
-
-    return results
+        .order_by(Analytics.date)
+    )
+    records = result.scalars().all()
+    return [
+        {
+            "date": r.date.isoformat() if r.date else None,
+            "visitors": r.visitors,
+            "sessions": r.chat_sessions,
+            "messages": r.messages,
+            "leads": r.leads_generated,
+            "conversion_rate": r.conversion_rate,
+        }
+        for r in records
+    ]
 
 
 @router.get("/questions")
-async def top_questions(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+async def get_top_questions(
+    limit: int = Query(default=20, ge=1, le=100),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
 ):
+    # Get messages from sessions belonging to the company
     result = await db.execute(
         select(ChatMessage.content, func.count(ChatMessage.id).label("count"))
         .join(ChatSession, ChatMessage.session_id == ChatSession.id)
         .where(
             ChatSession.company_id == current_user.company_id,
-            ChatMessage.role == "user",
+            ChatMessage.role == MessageRole.user
         )
         .group_by(ChatMessage.content)
-        .order_by(func.count(ChatMessage.id).desc())
-        .limit(10)
+        .order_by(desc("count"))
+        .limit(limit)
     )
     rows = result.all()
-    return [{"question": row[0], "count": row[1]} for row in rows]
+    return [{"message": row[0], "count": row[1]} for row in rows]

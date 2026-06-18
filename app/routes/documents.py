@@ -1,15 +1,17 @@
 import os
 import uuid
-import aiofiles
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+import asyncio
+import shutil
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
-from app.database.connection import get_db, AsyncSessionLocal
-from app.database.models import User, Document, KnowledgeChunk
-from app.utils.security import get_current_user
+from sqlalchemy import select
+
+from app.database.connection import get_db
+from app.database.models import User, Document, DocumentStatus
+from app.utils.security import get_current_active_user
 from app.config.settings import settings
 
-router = APIRouter(prefix="/documents", tags=["documents"])
+router = APIRouter()
 
 ALLOWED_TYPES = {
     "application/pdf": "pdf",
@@ -18,74 +20,61 @@ ALLOWED_TYPES = {
 }
 
 
-async def process_doc_background(company_id: str, document_id: str, file_path: str, file_type: str):
-    from app.services.document_service import process_document
-    async with AsyncSessionLocal() as db:
-        try:
-            await process_document(company_id, document_id, file_path, file_type, db)
-            await db.commit()
-        except Exception as e:
-            await db.rollback()
-            print(f"Document processing error: {e}")
-
-
 @router.post("/upload")
 async def upload_document(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    content_type = file.content_type or ""
-    file_type = ALLOWED_TYPES.get(content_type)
-    if not file_type:
-        # Try by extension
-        ext = os.path.splitext(file.filename or "")[1].lower().lstrip(".")
-        if ext in ("pdf", "docx", "txt"):
-            file_type = ext
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported file type")
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported file type. Only PDF, DOCX, TXT allowed.")
 
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    file_id = str(uuid.uuid4())
-    filename = f"{file_id}_{file.filename}"
-    file_path = os.path.join(settings.UPLOAD_DIR, filename)
+    # Save file
+    upload_dir = os.path.join(settings.UPLOAD_DIR, str(current_user.company_id), "documents")
+    os.makedirs(upload_dir, exist_ok=True)
+    ext = ALLOWED_TYPES[file.content_type]
+    filename = f"{uuid.uuid4()}.{ext}"
+    file_path = os.path.join(upload_dir, filename)
 
-    content = await file.read()
-    async with aiofiles.open(file_path, "wb") as f:
-        await f.write(content)
+    file_content = await file.read()
+    file_size = len(file_content)
+    with open(file_path, "wb") as f:
+        f.write(file_content)
 
-    doc = Document(
+    # Create document record
+    document = Document(
         company_id=current_user.company_id,
-        filename=file.filename or filename,
-        file_type=file_type,
-        file_size=len(content),
-        status="pending",
+        filename=file.filename,
+        file_type=ext,
+        file_size=file_size,
+        status=DocumentStatus.pending,
     )
-    db.add(doc)
+    db.add(document)
     await db.flush()
+    doc_id = str(document.id)
 
-    background_tasks.add_task(
-        process_doc_background,
-        str(current_user.company_id),
-        str(doc.id),
-        file_path,
-        file_type,
-    )
+    async def process():
+        from app.services.document_service import DocumentService
+        from app.database.connection import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            svc = DocumentService(session)
+            await svc.process_document(str(current_user.company_id), doc_id, file_path, ext)
+
+    asyncio.create_task(process())
 
     return {
-        "id": str(doc.id),
-        "filename": doc.filename,
-        "file_type": doc.file_type,
-        "file_size": doc.file_size,
-        "status": doc.status,
+        "id": doc_id,
+        "filename": file.filename,
+        "file_type": ext,
+        "file_size": file_size,
+        "status": "pending",
     }
 
 
-@router.get("/")
+@router.get("")
 async def list_documents(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
         select(Document).where(Document.company_id == current_user.company_id)
@@ -97,7 +86,7 @@ async def list_documents(
             "filename": d.filename,
             "file_type": d.file_type,
             "file_size": d.file_size,
-            "status": d.status,
+            "status": d.status.value,
             "chunk_count": d.chunk_count,
             "created_at": d.created_at.isoformat() if d.created_at else None,
         }
@@ -105,16 +94,45 @@ async def list_documents(
     ]
 
 
-@router.get("/{doc_id}")
-async def get_document(
-    doc_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+@router.delete("/{document_id}")
+async def delete_document(
+    document_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
         select(Document).where(
-            Document.id == doc_id,
-            Document.company_id == current_user.company_id,
+            Document.id == document_id,
+            Document.company_id == current_user.company_id
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Delete file
+    upload_dir = os.path.join(settings.UPLOAD_DIR, str(current_user.company_id), "documents")
+    for f in os.listdir(upload_dir) if os.path.exists(upload_dir) else []:
+        if document_id in f:
+            try:
+                os.remove(os.path.join(upload_dir, f))
+            except Exception:
+                pass
+
+    await db.delete(doc)
+    return {"message": "Document deleted successfully"}
+
+
+@router.get("/{document_id}/status")
+async def get_document_status(
+    document_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.company_id == current_user.company_id
         )
     )
     doc = result.scalar_one_or_none()
@@ -123,35 +141,6 @@ async def get_document(
     return {
         "id": str(doc.id),
         "filename": doc.filename,
-        "file_type": doc.file_type,
-        "file_size": doc.file_size,
-        "status": doc.status,
+        "status": doc.status.value,
         "chunk_count": doc.chunk_count,
-        "created_at": doc.created_at.isoformat() if doc.created_at else None,
     }
-
-
-@router.delete("/{doc_id}")
-async def delete_document(
-    doc_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(Document).where(
-            Document.id == doc_id,
-            Document.company_id == current_user.company_id,
-        )
-    )
-    doc = result.scalar_one_or_none()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    await db.execute(
-        delete(KnowledgeChunk).where(
-            KnowledgeChunk.source_type == "document",
-            KnowledgeChunk.source_id == str(doc.id),
-        )
-    )
-    await db.delete(doc)
-    return {"message": "Document deleted successfully"}

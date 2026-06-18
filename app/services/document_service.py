@@ -1,96 +1,132 @@
-import uuid
+import os
+from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.database.models import Document, KnowledgeChunk
-from app.services.crawler_service import chunk_text
-from app.services.embedding_service import embed_batch
-from app.services.qdrant_service import qdrant_service
+
+from app.database.models import Document, DocumentStatus, KnowledgeChunk, SourceType
+from app.config.settings import settings
 
 
-async def process_pdf(file_path: str) -> str:
-    from pypdf import PdfReader
-    reader = PdfReader(file_path)
-    text_parts = []
-    for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            text_parts.append(text)
-    return "\n".join(text_parts)
+class DocumentService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
 
-
-async def process_docx(file_path: str) -> str:
-    from docx import Document as DocxDocument
-    doc = DocxDocument(file_path)
-    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-    return "\n".join(paragraphs)
-
-
-async def process_txt(file_path: str) -> str:
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-        return f.read()
-
-
-async def process_document(
-    company_id: str,
-    document_id: str,
-    file_path: str,
-    file_type: str,
-    db: AsyncSession,
-):
-    # Extract text
-    if file_type == "pdf":
-        text = await process_pdf(file_path)
-    elif file_type == "docx":
-        text = await process_docx(file_path)
-    else:
-        text = await process_txt(file_path)
-
-    if not text.strip():
-        result = await db.execute(select(Document).where(Document.id == document_id))
-        doc = result.scalar_one_or_none()
-        if doc:
-            doc.status = "error"
-        return
-
-    # Chunk text
-    chunks = chunk_text(text)
-    if not chunks:
-        return
-
-    # Embed chunks
-    embeddings = await embed_batch(chunks)
-
-    vectors = []
-    payloads = []
-    ids = []
-
-    for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        chunk_id = str(uuid.uuid4())
-        knowledge_chunk = KnowledgeChunk(
-            id=chunk_id,
-            company_id=company_id,
-            source_type="document",
-            source_id=document_id,
-            chunk_text=chunk,
-            chunk_index=idx,
-            embedding_id=chunk_id,
+    async def process_document(self, company_id: str, document_id: str, file_path: str, file_type: str):
+        # Get document
+        result = await self.db.execute(
+            select(Document).where(Document.id == document_id)
         )
-        db.add(knowledge_chunk)
-        vectors.append(embedding)
-        payloads.append({
-            "source_type": "document",
-            "source_id": document_id,
-            "chunk_text": chunk[:500],
-        })
-        ids.append(chunk_id)
+        doc = result.scalar_one_or_none()
+        if not doc:
+            return
 
-    qdrant_service.upsert(company_id, vectors, payloads, ids)
+        # Update status to processing
+        doc.status = DocumentStatus.processing
+        await self.db.flush()
 
-    # Update document status
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    doc = result.scalar_one_or_none()
-    if doc:
-        doc.status = "done"
-        doc.chunk_count = len(chunks)
+        try:
+            text = self._extract_text(file_path, file_type)
+            chunks = self._chunk_text(text)
 
-    await db.flush()
+            # Store chunks
+            chunk_count = 0
+            vectors = []
+
+            try:
+                from app.services.embedding_service import EmbeddingService
+                embedding_svc = EmbeddingService(self.db)
+                vectors = await embedding_svc.embed_batch(chunks)
+                await embedding_svc.store_chunks(
+                    company_id=company_id,
+                    chunks=chunks,
+                    source_type="document",
+                    source_id=document_id,
+                    vectors=vectors,
+                )
+            except Exception:
+                # Store chunks without embeddings
+                for i, chunk in enumerate(chunks):
+                    kc = KnowledgeChunk(
+                        company_id=company_id,
+                        source_type=SourceType.document,
+                        source_id=document_id,
+                        chunk_text=chunk,
+                        chunk_index=i,
+                    )
+                    self.db.add(kc)
+                    chunk_count += 1
+                await self.db.flush()
+
+            doc.chunk_count = len(chunks)
+            doc.status = DocumentStatus.done
+            await self.db.flush()
+
+        except Exception as e:
+            doc.status = DocumentStatus.failed
+            await self.db.flush()
+            raise e
+
+    def _extract_text(self, file_path: str, file_type: str) -> str:
+        if file_type == "pdf":
+            return self._extract_pdf(file_path)
+        elif file_type == "docx":
+            return self._extract_docx(file_path)
+        elif file_type == "txt":
+            return self._extract_txt(file_path)
+        else:
+            raise ValueError(f"Unsupported file type: {file_type}")
+
+    def _extract_pdf(self, file_path: str) -> str:
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(file_path)
+            text_parts = []
+            for page in reader.pages:
+                text = page.extract_text()
+                if text:
+                    text_parts.append(text)
+            return "\n".join(text_parts)
+        except Exception as e:
+            raise ValueError(f"Failed to extract PDF: {str(e)}")
+
+    def _extract_docx(self, file_path: str) -> str:
+        try:
+            from docx import Document
+            doc = Document(file_path)
+            text_parts = []
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    text_parts.append(para.text)
+            return "\n".join(text_parts)
+        except Exception as e:
+            raise ValueError(f"Failed to extract DOCX: {str(e)}")
+
+    def _extract_txt(self, file_path: str) -> str:
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                return f.read()
+        except Exception as e:
+            raise ValueError(f"Failed to read TXT: {str(e)}")
+
+    def _chunk_text(self, text: str) -> List[str]:
+        max_size = settings.MAX_CHUNK_SIZE
+        overlap = settings.CHUNK_OVERLAP
+        chunks = []
+
+        if not text.strip():
+            return []
+
+        if len(text) <= max_size:
+            return [text]
+
+        start = 0
+        while start < len(text):
+            end = start + max_size
+            chunk = text[start:end]
+            if chunk.strip():
+                chunks.append(chunk)
+            start = end - overlap
+            if start >= len(text):
+                break
+
+        return chunks
