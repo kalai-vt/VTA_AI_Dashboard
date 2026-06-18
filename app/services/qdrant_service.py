@@ -1,91 +1,87 @@
-from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
-)
-from typing import List, Optional, Dict, Any
-from app.config.settings import settings
 import uuid
+from typing import List, Optional
+from app.config.settings import settings
 
 
 class QdrantService:
     def __init__(self):
-        self.client = QdrantClient(
-            host=settings.QDRANT_HOST,
-            port=settings.QDRANT_PORT,
-        )
-        self.vector_size = 1536
+        self._client = None
+        self.vector_size = 1536  # ada-002
 
-    def collection_name(self, company_id: str) -> str:
+    @property
+    def client(self):
+        if self._client is None:
+            from qdrant_client import QdrantClient
+            self._client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        return self._client
+
+    def get_collection_name(self, company_id: str) -> str:
         return f"company_{company_id.replace('-', '_')}"
 
-    def ensure_collection(self, company_id: str):
-        name = self.collection_name(company_id)
+    def create_collection(self, company_id: str):
+        from qdrant_client.models import Distance, VectorParams
+        collection_name = self.get_collection_name(company_id)
         existing = self.client.get_collections().collections
         existing_names = [c.name for c in existing]
-        if name not in existing_names:
+        if collection_name not in existing_names:
             self.client.create_collection(
-                collection_name=name,
+                collection_name=collection_name,
                 vectors_config=VectorParams(size=self.vector_size, distance=Distance.COSINE),
             )
-        return name
 
-    def upsert(self, company_id: str, vectors: List[List[float]], payloads: List[Dict], ids: List[str]):
-        name = self.ensure_collection(company_id)
+    def upsert_vectors(
+        self,
+        collection_name: str,
+        vectors: List[List[float]],
+        payloads: List[dict],
+        ids: List[str]
+    ):
+        from qdrant_client.models import PointStruct
         points = [
             PointStruct(
-                id=str(ids[i]),
-                vector=vectors[i],
-                payload=payloads[i],
+                id=str(uuid.UUID(id_str)) if "-" in id_str else id_str,
+                vector=vector,
+                payload=payload,
             )
-            for i in range(len(vectors))
+            for id_str, vector, payload in zip(ids, vectors, payloads)
         ]
-        self.client.upsert(collection_name=name, points=points)
+        if points:
+            self.client.upsert(collection_name=collection_name, points=points)
 
     def search(
         self,
-        company_id: str,
+        collection_name: str,
         query_vector: List[float],
         top_k: int = 5,
-        filter_payload: Optional[Dict] = None,
-    ) -> List[Dict]:
-        name = self.collection_name(company_id)
-        # Check if collection exists
-        existing = self.client.get_collections().collections
-        existing_names = [c.name for c in existing]
-        if name not in existing_names:
-            return []
-
-        query_filter = None
-        if filter_payload:
-            conditions = [
-                FieldCondition(key=k, match=MatchValue(value=v))
-                for k, v in filter_payload.items()
-            ]
-            query_filter = Filter(must=conditions)
-
+        company_id: Optional[str] = None
+    ) -> List[dict]:
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        search_filter = None
+        if company_id:
+            search_filter = Filter(
+                must=[FieldCondition(key="company_id", match=MatchValue(value=company_id))]
+            )
         results = self.client.search(
-            collection_name=name,
+            collection_name=collection_name,
             query_vector=query_vector,
             limit=top_k,
-            query_filter=query_filter,
+            query_filter=search_filter,
         )
         return [
-            {"id": str(r.id), "score": r.score, "payload": r.payload}
+            {
+                "text": r.payload.get("chunk_text", ""),
+                "score": r.score,
+                "source_type": r.payload.get("source_type", ""),
+                "source_id": r.payload.get("source_id", ""),
+            }
             for r in results
         ]
 
-    def delete_by_filter(self, company_id: str, filter_key: str, filter_value: str):
-        name = self.collection_name(company_id)
-        existing = self.client.get_collections().collections
-        existing_names = [c.name for c in existing]
-        if name not in existing_names:
-            return
+    def delete_by_source(self, collection_name: str, source_id: str):
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
         self.client.delete(
-            collection_name=name,
+            collection_name=collection_name,
             points_selector=Filter(
-                must=[FieldCondition(key=filter_key, match=MatchValue(value=filter_value))]
+                must=[FieldCondition(key="source_id", match=MatchValue(value=source_id))]
             ),
         )
-
-
-qdrant_service = QdrantService()
