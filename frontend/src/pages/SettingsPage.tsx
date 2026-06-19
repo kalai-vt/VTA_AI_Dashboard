@@ -52,7 +52,7 @@ export default function SettingsPage() {
   }, [agentSettings])
 
   const companyMutation = useMutation({
-    mutationFn: () => companyAPI.updateMe(companyForm),
+    mutationFn: () => companyAPI.update(companyForm),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['company'] }),
   })
 

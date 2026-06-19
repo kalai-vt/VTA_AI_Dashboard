@@ -1,39 +1,37 @@
-import { TrendingUp, TrendingDown } from 'lucide-react'
-import clsx from 'clsx'
+import React from 'react';
+import { LucideIcon } from 'lucide-react';
+
+type Color = 'blue' | 'green' | 'yellow' | 'purple' | 'red';
+
+const colorMap: Record<Color, string> = {
+  blue: 'bg-blue-50 text-blue-600',
+  green: 'bg-green-50 text-green-600',
+  yellow: 'bg-yellow-50 text-yellow-600',
+  purple: 'bg-purple-50 text-purple-600',
+  red: 'bg-red-50 text-red-600',
+};
 
 interface StatsCardProps {
-  title: string
-  value: string | number
-  icon: React.ReactNode
-  trend?: { value: number; positive: boolean }
-  color?: 'blue' | 'green' | 'purple' | 'orange'
+  title: string;
+  value: string | number;
+  icon: LucideIcon;
+  trend?: { value: number; positive: boolean };
+  color?: Color;
 }
 
-const colorMap = {
-  blue: 'bg-blue-100 text-blue-600',
-  green: 'bg-green-100 text-green-600',
-  purple: 'bg-purple-100 text-purple-600',
-  orange: 'bg-orange-100 text-orange-600',
-}
-
-export default function StatsCard({ title, value, icon, trend, color = 'blue' }: StatsCardProps) {
+export default function StatsCard({ title, value, icon: Icon, trend, color = 'blue' }: StatsCardProps) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className={clsx('p-3 rounded-xl', colorMap[color])}>
-          {icon}
-        </div>
+    <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-start gap-4">
+      <div className={`p-3 rounded-lg ${colorMap[color]}`}><Icon size={22} /></div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-gray-500 truncate">{title}</p>
+        <p className="text-2xl font-bold text-gray-900 mt-0.5">{value}</p>
         {trend && (
-          <div className={clsx('flex items-center gap-1 text-sm font-medium', trend.positive ? 'text-green-600' : 'text-red-500')}>
-            {trend.positive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-            {Math.abs(trend.value)}%
-          </div>
+          <p className={`text-xs mt-1 ${trend.positive ? 'text-green-600' : 'text-red-600'}`}>
+            {trend.positive ? '↑' : '↓'} {Math.abs(trend.value)}% vs yesterday
+          </p>
         )}
       </div>
-      <div>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
-        <p className="text-sm text-gray-500 mt-1">{title}</p>
-      </div>
     </div>
-  )
+  );
 }
