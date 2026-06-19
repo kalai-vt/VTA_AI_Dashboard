@@ -8,7 +8,7 @@ from app.database.connection import get_db
 from app.database.models import User, Analytics, ChatSession, ChatMessage, Lead, MessageRole
 from app.utils.security import get_current_active_user
 
-router = APIRouter()
+router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 @router.get("/dashboard")

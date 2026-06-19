@@ -12,7 +12,7 @@ from app.database.models import User, Company, UserRole
 from app.utils.security import get_current_active_user
 from app.config.settings import settings
 
-router = APIRouter()
+router = APIRouter(prefix="/company", tags=["company"])
 
 
 class CompanyUpdate(BaseModel):

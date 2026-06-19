@@ -11,7 +11,7 @@ from app.database.models import User, Document, DocumentStatus
 from app.utils.security import get_current_active_user
 from app.config.settings import settings
 
-router = APIRouter()
+router = APIRouter(prefix="/documents", tags=["documents"])
 
 ALLOWED_TYPES = {
     "application/pdf": "pdf",

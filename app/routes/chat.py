@@ -11,7 +11,7 @@ from app.database.models import Company, ChatSession, ChatMessage, MessageRole
 from app.utils.security import get_current_active_user
 from app.database.models import User
 
-router = APIRouter()
+router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 class ChatRequest(BaseModel):

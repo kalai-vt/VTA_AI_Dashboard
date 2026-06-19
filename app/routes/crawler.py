@@ -10,7 +10,7 @@ from app.database.connection import get_db
 from app.database.models import User, WebsitePage
 from app.utils.security import get_current_active_user
 
-router = APIRouter()
+router = APIRouter(prefix="/crawler", tags=["crawler"])
 
 # In-memory job tracking
 crawler_jobs: dict = {}

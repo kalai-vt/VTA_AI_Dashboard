@@ -9,7 +9,7 @@ from app.database.connection import get_db
 from app.database.models import User, Lead, LeadPriority, LeadStatus
 from app.utils.security import get_current_active_user
 
-router = APIRouter()
+router = APIRouter(prefix="/leads", tags=["leads"])
 
 
 class LeadUpdate(BaseModel):
